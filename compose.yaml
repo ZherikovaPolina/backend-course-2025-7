@@ -11,7 +11,7 @@ services:
       - db
     volumes:
       - .:/usr/src/app
-    command: npx nodemon --inspect=0.0.0.0:9229 -L main.js
+    command: node --inspect=0.0.0.0:9229 main.js
   db:
     image: postgres:15
     restart: always
