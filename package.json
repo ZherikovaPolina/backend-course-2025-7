@@ -5,7 +5,7 @@
   "main": "main.js",
   "scripts": {
     "start": "node main.js",
-    "dev": "nodemon main.js -- -h 0.0.0.0 -p 8080 -c /usr/src/app/cache"
+    "dev": "nodemon main.js"
   },
   "keywords": [],
   "author": "",
