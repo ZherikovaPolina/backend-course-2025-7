@@ -4,13 +4,13 @@ services:
   server:
     build: .
     ports:
-      - "8080:8080"
+      - "${PORT}:${PORT}"
     env_file: ./.env
     depends_on:
       - db
     volumes:
       - .:/usr/src/app
-    command: npx nodemon -L --inspect=0.0.0.0 main.js -h 0.0.0.0 -p 8080 -c /usr/src/app/cache
+    command: npm run dev
   db:
     image: postgres:15
     restart: always

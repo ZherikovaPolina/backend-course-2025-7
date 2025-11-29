@@ -11,5 +11,5 @@ COPY . .
 
 EXPOSE 8080
 
-CMD ["npm", "run", "dev"]
+CMD ["npm", "run", "dev", "--", "-h", "0.0.0.0", "-p", "8080", "-c", "/usr/src/app/cache"]
 
