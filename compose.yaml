@@ -5,12 +5,12 @@ services:
     build: .
     ports:
       - "${PORT}:${PORT}"
-    env_file: ./.env
+    env_file: .env
     depends_on:
       - db
     volumes:
       - .:/usr/src/app
-    command: npm run dev
+    command: npx nodemon -L main.js 
   db:
     image: postgres:15
     restart: always
