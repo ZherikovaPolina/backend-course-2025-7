@@ -5,7 +5,8 @@
   "main": "main.js",
   "scripts": {
     "start": "node main.js",
-    "dev": "nodemon main.js"
+    "dev": "nodemon main.js",
+    "debug": "nodemon --inspect=0.0.0.0:9229 main.js"
   },
   "keywords": [],
   "author": "",

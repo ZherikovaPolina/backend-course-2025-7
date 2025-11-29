@@ -5,12 +5,13 @@ services:
     build: .
     ports:
       - "${PORT}:${PORT}"
+      - "9229:9229"
     env_file: .env
     depends_on:
       - db
     volumes:
       - .:/usr/src/app
-    command: npx nodemon -L main.js 
+    command: npx nodemon --inspect=0.0.0.0:9229 -L main.js
   db:
     image: postgres:15
     restart: always
