@@ -4,16 +4,12 @@ const http = require('http');
 const path = require('path');
 const express = require('express');
 const multer = require('multer');
+require('dotenv').config();
 
-program
-  .requiredOption('-h, --host <host>', 'Server address')
-  .requiredOption('-p, --port <port>', 'Server port')
-  .requiredOption('-c, --cache <dir>', 'Path to cache directory');
+const HOST = process.env.HOST || '0.0.0.0';
+const PORT = process.env.PORT || 8080;
+const CACHE_DIR = path.resolve(process.env.CACHE_DIR || './cache');
 
-program.parse();
-const options = program.opts();
-
-const CACHE_DIR = path.resolve(process.cwd(), options.cache);
 if (!fs.existsSync(CACHE_DIR)) fs.mkdirSync(CACHE_DIR, { recursive: true });
 
 const DB_FILE = path.join(CACHE_DIR, 'db.json');
@@ -377,6 +373,6 @@ app.use((req, res, next) => {
   next();
 });
 
-server.listen(options.port, options.host, () => {
-  console.log(`Server running at http://${options.host}:${options.port}/`);
+server.listen(PORT, HOST, () => {
+  console.log(`Server running at http://${HOST}:${PORT}/`);
 });
