@@ -1,10 +1,10 @@
-const { program } = require('commander');
 const fs = require('fs');
 const http = require('http');
 const path = require('path');
 const express = require('express');
 const multer = require('multer');
 require('dotenv').config();
+const { Pool } = require('pg');
 
 const HOST = process.env.HOST || '0.0.0.0';
 const PORT = process.env.PORT || 8080;
@@ -12,8 +12,13 @@ const CACHE_DIR = path.resolve(process.env.CACHE_DIR || './cache');
 
 if (!fs.existsSync(CACHE_DIR)) fs.mkdirSync(CACHE_DIR, { recursive: true });
 
-const DB_FILE = path.join(CACHE_DIR, 'db.json');
-if (!fs.existsSync(DB_FILE)) fs.writeFileSync(DB_FILE, JSON.stringify([], null, 2));
+const pool = new Pool({
+  host: process.env.DB_HOST,
+  port: Number(process.env.DB_PORT),
+  user: process.env.DB_USER,
+  password: process.env.DB_PASSWORD,
+  database: process.env.DB_NAME
+});
 
 const app = express();
 const swaggerJsdoc = require('swagger-jsdoc');
@@ -40,18 +45,6 @@ app.use(express.urlencoded({ extended: true }));
 app.use('/static', express.static(path.join(process.cwd(), 'public')));
 
 const upload = multer({ storage: multer.memoryStorage() });
-
-function readDB() {
-  return JSON.parse(fs.readFileSync(DB_FILE, 'utf8') || '[]');
-}
-
-function writeDB(data) {
-  fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2));
-}
-
-function nextId(db) {
-  return db.length ? Math.max(...db.map(x => x.id)) + 1 : 1;
-}
 
 function photoFile(id) {
   return path.join(CACHE_DIR, `${id}.jpg`);
@@ -81,24 +74,31 @@ function photoFile(id) {
  *         description: Item created
  */
 
-app.post('/register', upload.single('photo'), (req, res) => {
-  const { inventory_name, description } = req.body;
-  if (!inventory_name) return res.status(400).send("inventory_name is required");
+app.post('/register', upload.single('photo'), async (req, res) => {
+  try {
+    const { inventory_name, description } = req.body;
+    if (!inventory_name) return res.status(400).send("inventory_name is required");
 
-  const db = readDB();
-  const id = nextId(db);
+    const result = await pool.query(
+      "INSERT INTO inventory (name, description, photo) VALUES ($1,$2,$3) RETURNING id",
+      [inventory_name, description || "", null]
+    );
 
-  let photoName = null;
-  if (req.file) {
-    photoName = `${id}.jpg`;
-    fs.writeFileSync(photoFile(id), req.file.buffer);
+    const id = result.rows[0].id;
+    let photoName = null;
+
+    if (req.file) {
+      photoName = `${id}.jpg`;
+      fs.writeFileSync(photoFile(id), req.file.buffer);
+
+      await pool.query("UPDATE inventory SET photo=$1 WHERE id=$2", [photoName, id]);
+    }
+
+    res.status(201).json({ id, name: inventory_name, description, photo: photoName });
+
+  } catch (e) {
+    res.status(500).send(e.message);
   }
-
-  const item = { id, name: inventory_name, description: description || "", photo: photoName };
-  db.push(item);
-  writeDB(db);
-
-  res.status(201).json(item);
 });
 
 /**
@@ -111,9 +111,9 @@ app.post('/register', upload.single('photo'), (req, res) => {
  *         description: List of items
  */
 
-app.get('/inventory', (req, res) => {
-  const db = readDB();
-  res.status(200).json(db);
+app.get('/inventory', async (req, res) => {
+  const result = await pool.query("SELECT * FROM inventory ORDER BY id");
+  res.json(result.rows);
 });
 
 /**
@@ -134,15 +134,12 @@ app.get('/inventory', (req, res) => {
  *         description: Not found
  */
 
-app.get('/inventory/:id', (req, res) => {
-  const id = Number(req.params.id);    
-  if (isNaN(id)) return res.status(400).send("ID must be a number");
-  const db = readDB();                    
-  const item = db.find(x => x.id === id); 
+app.get('/inventory/:id', async (req, res) => {
+  const id = Number(req.params.id);
+  const result = await pool.query("SELECT * FROM inventory WHERE id=$1", [id]);
 
-  if (!item) return res.status(404).send("Not found"); 
-
-  res.status(200).json(item); 
+  if (result.rowCount === 0) return res.status(404).send("Not found");
+  res.json(result.rows[0]);
 });
 
 /**
@@ -172,20 +169,19 @@ app.get('/inventory/:id', (req, res) => {
  *         description: Updated item
  */
 
-app.put('/inventory/:id', (req, res) => {
-  const id = Number(req.params.id);      
-  if (isNaN(id)) return res.status(400).send("ID must be a number");  
-  const db = readDB();                     
-  const item = db.find(x => x.id === id);  
+app.put('/inventory/:id', async (req, res) => {
+  const id = Number(req.params.id);
+  const { name, description } = req.body;
 
-  if (!item) return res.status(404).send("Not found"); 
+  const result = await pool.query("SELECT * FROM inventory WHERE id=$1", [id]);
+  if (result.rowCount === 0) return res.status(404).send("Not found");
 
-  if (req.body.name) item.name = req.body.name;
-  if (req.body.description) item.description = req.body.description;
+  await pool.query(
+    "UPDATE inventory SET name=$1, description=$2 WHERE id=$3",
+    [name || result.rows[0].name, description || result.rows[0].description, id]
+  );
 
-  writeDB(db); 
-
-  res.status(200).json(item);
+  res.json({ id, name, description });
 });
 
 /**
@@ -207,9 +203,8 @@ app.put('/inventory/:id', (req, res) => {
  */
 
 app.get('/inventory/:id/photo', (req, res) => {
-  const id = Number(req.params.id);   
-  if (isNaN(id)) return res.status(400).send("ID must be a number");       
-  const file = photoFile(id);                
+  const id = Number(req.params.id);
+  const file = photoFile(id);
 
   if (!fs.existsSync(file)) return res.status(404).send("Photo not found");
 
@@ -243,21 +238,19 @@ app.get('/inventory/:id/photo', (req, res) => {
  *         description: Photo updated
  */
 
-app.put('/inventory/:id/photo', upload.single('photo'), (req, res) => {
-  const id = Number(req.params.id);      
-  if (isNaN(id)) return res.status(400).send("ID must be a number"); 
-  const db = readDB();                    
-  const item = db.find(x => x.id === id); 
+app.put('/inventory/:id/photo', upload.single('photo'), async (req, res) => {
+  const id = Number(req.params.id);
+  const result = await pool.query("SELECT * FROM inventory WHERE id=$1", [id]);
 
-  if (!item) return res.status(404).send("Not found");        
-  if (!req.file) return res.status(400).send("No photo uploaded"); 
+  if (result.rowCount === 0) return res.status(404).send("Not found");
+  if (!req.file) return res.status(400).send("No photo uploaded");
 
   fs.writeFileSync(photoFile(id), req.file.buffer);
-  item.photo = `${id}.jpg`;
+  const photoName = `${id}.jpg`;
 
-  writeDB(db); 
+  await pool.query("UPDATE inventory SET photo=$1 WHERE id=$2", [photoName, id]);
 
-  res.status(200).json(item); 
+  res.json({ id, photo: photoName });
 });
 
 /**
@@ -276,21 +269,14 @@ app.put('/inventory/:id/photo', upload.single('photo'), (req, res) => {
  *         description: Deleted
  */
 
-app.delete('/inventory/:id', (req, res) => {
+app.delete('/inventory/:id', async (req, res) => {
   const id = Number(req.params.id);
-  if (isNaN(id)) return res.status(400).send("ID must be a number");
-  let db = readDB();
-  const index = db.findIndex(x => x.id === id);
-
-  if (index === -1) return res.status(404).send("Not found");
+  await pool.query("DELETE FROM inventory WHERE id=$1", [id]);
 
   const file = photoFile(id);
   if (fs.existsSync(file)) fs.unlinkSync(file);
 
-  db.splice(index, 1); 
-  writeDB(db);
-
-  res.status(200).send("Deleted");
+  res.send("Deleted");
 });
 
 /**
@@ -346,25 +332,18 @@ app.get('/SearchForm.html', (req, res) => {
  *         description: Item not found
  */
 
-app.post('/search', express.urlencoded({ extended: true }), (req, res) => {
+app.post('/search', express.urlencoded({ extended: true }), async (req, res) => {
   const id = Number(req.body.id);
   const includePhoto = req.body.includePhoto === "on";
-  const db = readDB();
-  const item = db.find(x => x.id === id);
-  if (!item) return res.status(404).send("Not found");
 
-  const result = {
-    id: item.id,
-    name: item.name,
-    description: item.description,
-    photo: item.photo
-  };
+  const result = await pool.query("SELECT * FROM inventory WHERE id=$1", [id]);
+  if (result.rowCount === 0) return res.status(404).send("Not found");
 
-  if (includePhoto && item.photo) {
-    result.photo_url = `/inventory/${id}/photo`;
-  }
+  const item = result.rows[0];
+  if (includePhoto && item.photo)
+    item.photo_url = `/inventory/${id}/photo`;
 
-  res.json(result);
+  res.json(item);
 });
 
 app.use((req, res, next) => {
