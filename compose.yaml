@@ -1,0 +1,28 @@
+version: '3.9'
+
+services:
+  server:
+    build: .
+    ports:
+      - "8080:8080"
+    env_file: ./.env
+    depends_on:
+      - db
+    volumes:
+      - .:/usr/src/app
+    command: npx nodemon -L --inspect=0.0.0.0 main.js -h 0.0.0.0 -p 8080 -c /usr/src/app/cache
+  db:
+    image: postgres:15
+    restart: always
+    environment:
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME}
+    ports:
+      - "5432:5432"
+    volumes:
+      - db-data:/var/lib/postgresql/data
+      - ./initdb:/docker-entrypoint-initdb.d
+
+volumes:
+  db-data:
